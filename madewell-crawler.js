@@ -34,13 +34,29 @@ const STORE_CONFIG = {
 };
 
 const MADEWELL_CATEGORIES = {
-  WOMENS_CLOTHING: {
-    name: "Women's Clothing",
-    url: "/us/womens/clothing/",
+  WOMENS_NEW_ARRIVALS: {
+    name: "Women's New Arrivals",
+    url: "/us/womens/new/new-arrivals/",
   },
-  MENS_CLOTHING: {
-    name: "Men's Clothing",
-    url: "/us/mens/clothing/",
+  MENS_NEW_ARRIVALS: {
+    name: "Men's New Arrivals",
+    url: "/us/mens/new/new-arrivals/",
+  },
+  WOMENS_SALE: {
+    name: "Women's Sale",
+    url: "/us/womens/sale/",
+  },
+  MENS_SALE: {
+    name: "Men's Sale",
+    url: "/us/mens/sale/",
+  },
+  WOMENS_JEANS: {
+    name: "Women's Jeans",
+    url: "/us/womens/clothing/jeans/",
+  },
+  MENS_JEANS: {
+    name: "Men's Jeans",
+    url: "/us/mens/clothing/jeans/",
   },
 };
 
@@ -130,7 +146,13 @@ async function closeAllModals(page) {
     );
     if (shipToModal) {
       await shipToModal.click();
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // ⭐ Wait for modal to disappear instead of timeout
+      await page
+        .waitForSelector("button.ShipToModal_continueShoppingBtn__QubmY", {
+          hidden: true,
+          timeout: 3000,
+        })
+        .catch(() => {});
     }
   } catch {}
 
@@ -141,7 +163,13 @@ async function closeAllModals(page) {
       const closeBtn = await signUpModal.$('button[aria-label="Close modal"]');
       if (closeBtn) {
         await closeBtn.click();
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // ⭐ Wait for modal to disappear instead of timeout
+        await page
+          .waitForSelector('[data-testid="domestic-auth-modal"]', {
+            hidden: true,
+            timeout: 3000,
+          })
+          .catch(() => {});
       }
     }
   } catch {}
@@ -151,7 +179,13 @@ async function closeAllModals(page) {
     const modalClose = await page.$('[data-testid="modal-close"]');
     if (modalClose) {
       await modalClose.click();
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // ⭐ Wait for modal to disappear instead of timeout
+      await page
+        .waitForSelector('[data-testid="modal-close"]', {
+          hidden: true,
+          timeout: 3000,
+        })
+        .catch(() => {});
     }
   } catch {}
 }
@@ -286,7 +320,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
             )
             .catch(() => {});
 
-          // CRITICAL: Wait for size dropdown to be ready after color change
+          // ⭐ CRITICAL: Wait for size dropdown to be ready after color change (NO TIMEOUT)
           await page
             .waitForSelector(
               "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l",
@@ -297,13 +331,71 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
             )
             .catch(() => {});
 
-          // Extra delay for sizes to fully load (server is slower)
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          // ⭐ Wait for image gallery to update (check images are loaded)
+          await page
+            .waitForFunction(
+              () => {
+                const images = document.querySelectorAll(
+                  "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
+                );
+                return images.length > 0;
+              },
+              { timeout: 5000 }
+            )
+            .catch(() => {});
         }
       } catch (e) {
-        console.log(`    ⚠️ Could not click color swatch ${colorIdx}`);
-        continue;
+        console.log(
+          `    ⚠️ Could not click color swatch ${colorIdx}: ${e.message}`
+        );
+        // Close all modals and try to continue anyway
+        await closeAllModals(page);
+        // Don't skip - try to extract data with current state
       }
+
+      // ⭐ CAPTURE COLOR-SPECIFIC URL AND IMAGES AFTER CLICKING COLOR
+      let colorSpecificData = { colorUrl: "", colorImages: [] };
+      try {
+        colorSpecificData = await page.evaluate(() => {
+          const data = {};
+
+          // Get current URL with ccode parameter
+          // Replace /PK/ or /pk/ with /us/ for United States (case-insensitive)
+          data.colorUrl = window.location.href.replace(/\/PK\//i, "/us/");
+
+          // Extract color-specific images
+          const imageButtons = document.querySelectorAll(
+            "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
+          );
+          data.colorImages = Array.from(imageButtons)
+            .map((img) => img.getAttribute("src"))
+            .filter((src) => src && src.includes("http"))
+            .map((src) => {
+              // Get the high-res version
+              const url = new URL(src);
+              url.searchParams.set("wid", "1400");
+              url.searchParams.set("hei", "1779");
+              return url.toString();
+            });
+
+          return data;
+        });
+
+        console.log(`    🔗 Color URL: ${colorSpecificData.colorUrl}`);
+        console.log(
+          `    🖼️ Found ${colorSpecificData.colorImages.length} images for ${colorName}`
+        );
+      } catch (e) {
+        console.log(
+          `    ⚠️ Could not capture color-specific data: ${e.message}`
+        );
+        // Will be skipped later if empty - NO FALLBACK
+        colorSpecificData = { colorUrl: "", colorImages: [] };
+      }
+
+      // ⭐ Close all modals after capturing color data, before accessing size dropdown
+      await closeAllModals(page);
+      // Modals now wait for disappearance inside closeAllModals() - NO TIMEOUT NEEDED
 
       // Check if there are fit type buttons (Standard, Petite, Tall)
       const fitTypes = await page.evaluate(() => {
@@ -354,9 +446,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
               try {
                 // Close all modals before attempting to open dropdown
                 await closeAllModals(page);
-
-                // Wait a bit for dropdown to be ready
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                // Modals now wait for disappearance - NO TIMEOUT NEEDED
 
                 // Check if sizes are already visible (dropdown already open)
                 const sizesAlreadyVisible = await page.$(
@@ -401,12 +491,19 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
                   console.log(
                     `    ⚠️ Could not open size dropdown for fit: ${fitType.fitName} after 3 attempts`
                   );
+                  // Close all modals before continuing
+                  await closeAllModals(page);
                 }
               }
             }
 
             if (!dropdownOpened) {
-              continue;
+              // Close all modals and try to extract anyway
+              await closeAllModals(page);
+              console.log(
+                `    ℹ️ Attempting to extract sizes for ${fitType.fitName} without dropdown...`
+              );
+              // Don't skip - try to extract visible sizes
             }
 
             // Extract sizes for this fit type
@@ -458,6 +555,8 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
             console.log(
               `    ⚠️ Error processing fit type ${fitType.fitName}: ${e.message}`
             );
+            // Close all modals after error before moving to next fit type
+            await closeAllModals(page);
           }
         }
       } else {
@@ -467,9 +566,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
           try {
             // Close all modals before attempting to open dropdown
             await closeAllModals(page);
-
-            // Wait a bit for dropdown to be ready
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            // Modals now wait for disappearance - NO TIMEOUT NEEDED
 
             // Check if sizes are already visible (dropdown already open)
             const sizesAlreadyVisible = await page.$(
@@ -514,12 +611,19 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
               console.log(
                 `    ⚠️ Could not open size dropdown for color: ${colorName} after 3 attempts`
               );
+              // Close all modals before continuing
+              await closeAllModals(page);
             }
           }
         }
 
         if (!dropdownOpened) {
-          continue;
+          // Close all modals and try to extract anyway
+          await closeAllModals(page);
+          console.log(
+            `    ℹ️ Attempting to extract sizes for ${colorName} without dropdown...`
+          );
+          // Don't skip - try to extract visible sizes
         }
 
         try {
@@ -566,14 +670,37 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
           } catch {}
         } catch (e) {
           console.log(`    ⚠️ Error extracting sizes: ${e.message}`);
+          // Close all modals after error
+          await closeAllModals(page);
         }
       }
 
       console.log(`    📏 Total ${allSizes.length} size(s) for ${colorName}`);
 
+      // ⭐ Only save if we have real sizes - no fallback
+      if (allSizes.length === 0) {
+        console.log(
+          `    ⚠️ No sizes found for ${colorName}, skipping this color`
+        );
+        continue; // Skip this color if no real sizes
+      }
+
+      // ⭐ Only save if we have real color data
+      if (
+        !colorSpecificData.colorUrl ||
+        colorSpecificData.colorImages.length === 0
+      ) {
+        console.log(
+          `    ⚠️ Missing color-specific data for ${colorName}, skipping this color`
+        );
+        continue; // Skip if missing real data
+      }
+
       colorVariants.push({
         color: colorName,
-        sizes: allSizes,
+        sizes: allSizes, // Only real sizes
+        colorUrl: colorSpecificData.colorUrl,
+        colorImages: colorSpecificData.colorImages,
       });
     }
 
@@ -709,14 +836,30 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
           // Close all modals before pagination
           await closeAllModals(page);
 
-          // Navigate to next page
+          // ⭐ Navigate to next page - CHECK IF DISABLED FIRST (NO TIMEOUT!)
           try {
             const nextButton = await page.$(
               "a.Pagination_plpPaginationNext__2S2dh"
             );
 
             if (!nextButton) {
-              console.log("📭 No more pages");
+              console.log("📭 No next button found - end of catalog");
+              break;
+            }
+
+            // ⭐ Check if next button is disabled
+            const isDisabled = await nextButton.evaluate((el) => {
+              return (
+                el.getAttribute("aria-disabled") === "true" ||
+                el.classList.contains("disabled") ||
+                el.hasAttribute("disabled")
+              );
+            });
+
+            if (isDisabled) {
+              console.log(
+                "📭 Next button is disabled - reached end of catalog"
+              );
               break;
             }
 
@@ -724,34 +867,41 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
               el.getAttribute("href")
             );
 
-            if (!nextHref) break;
+            if (!nextHref) {
+              console.log("📭 No href on next button - end of catalog");
+              break;
+            }
 
             const url = new URL(nextHref, "https://www.madewell.com");
             url.searchParams.set("country", "US");
             url.searchParams.set("currency", "USD");
 
             console.log(`➡️  Next page: ${currentPage + 1}`);
-            await Promise.all([
-              page.waitForNavigation({
-                waitUntil: "domcontentloaded",
-                timeout: 60000,
-              }),
-              page.goto(url.toString(), { timeout: 60000 }),
-            ]);
+
+            // ⭐ Navigate WITHOUT timeout - just wait for products to appear
+            await page.goto(url.toString(), {
+              waitUntil: "domcontentloaded",
+              // NO timeout parameter - let it take as long as needed
+            });
 
             // Close all modals after pagination
             await closeAllModals(page);
 
+            // ⭐ Wait for products to load (this is the real check)
             await page.waitForSelector(
               "li.ProductsGrid_plpGridElement__aSWFa",
               {
                 visible: true,
+                timeout: 30000, // 30 seconds is enough for products to load
               }
             );
 
             currentPage++;
           } catch (error) {
             console.log(`❌ Pagination error: ${error.message}`);
+            console.log(
+              "📭 Stopping pagination - may have reached end or network issue"
+            );
             break;
           }
         }
@@ -775,13 +925,16 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
 // MAIN CRAWLER FUNCTION
 // ============================================================================
 
-async function madewellMain(minProductsPerCategory = 5) {
+async function madewellMain(minProductsPerCategory = 1600) {
   const store = STORE_CONFIG.MADEWELL;
   const inc = startIncrementalCatalog(store.country, "madewell", store);
 
   let totalProducts = 0;
   let categoryCount = 0;
   const totalCategories = Object.keys(MADEWELL_CATEGORIES).length;
+
+  // ⭐ Track unique product IDs across all categories to prevent duplicates
+  const processedProductIds = new Set();
 
   try {
     for (const [key, category] of Object.entries(MADEWELL_CATEGORIES)) {
@@ -807,6 +960,17 @@ async function madewellMain(minProductsPerCategory = 5) {
         async (browser) => {
           for (let i = 0; i < productList.length; i++) {
             const basicProduct = productList[i];
+
+            // ⭐ Check if product already processed (deduplication)
+            if (processedProductIds.has(basicProduct.id)) {
+              console.log(
+                `\n[${i + 1}/${productList.length}] ⏭️ Skipping duplicate: ${
+                  basicProduct.name
+                } (${basicProduct.id})`
+              );
+              continue; // Skip duplicate product
+            }
+
             console.log(
               `\n[${i + 1}/${productList.length}] Processing: ${
                 basicProduct.name
@@ -865,9 +1029,25 @@ async function madewellMain(minProductsPerCategory = 5) {
                 const color = colorVariant.color;
                 const sizes = colorVariant.sizes || [];
 
+                // ⭐ Use color-specific URL and images (ONLY REAL DATA)
+                const variantUrl = colorVariant.colorUrl;
+                const variantImages = colorVariant.colorImages;
+                const variantImageUrl = variantImages[0];
+
+                // ⭐ Skip if no sizes - ONLY REAL DATA
                 if (sizes.length === 0) {
-                  // No sizes, create single variant
-                  sizes.push({ size: "One Size", available: true });
+                  console.log(`  ⚠️ No sizes for color ${color}, skipping`);
+                  continue; // Skip this color variant
+                }
+
+                // ⭐ Skip if missing URL or images - ONLY REAL DATA
+                if (
+                  !variantUrl ||
+                  !variantImages ||
+                  variantImages.length === 0
+                ) {
+                  console.log(`  ⚠️ Missing data for color ${color}, skipping`);
+                  continue; // Skip this color variant
                 }
 
                 for (const sizeInfo of sizes) {
@@ -877,10 +1057,10 @@ async function madewellMain(minProductsPerCategory = 5) {
                   variants.push({
                     price_currency: "USD",
                     original_price: originalPriceNum,
-                    link_url: basicProduct.productUrl,
-                    deeplink_url: basicProduct.productUrl,
-                    image_url: imageUrl,
-                    alternate_image_urls: images,
+                    link_url: variantUrl, // ⭐ Color-specific URL
+                    deeplink_url: variantUrl, // ⭐ Color-specific URL
+                    image_url: variantImageUrl, // ⭐ Color-specific main image
+                    alternate_image_urls: variantImages, // ⭐ Color-specific images
                     is_on_sale: false,
                     is_in_stock: isInStock,
                     size: size,
@@ -893,7 +1073,7 @@ async function madewellMain(minProductsPerCategory = 5) {
                     average_ratings: 0,
                     review_count: 0,
                     selling_price: originalPriceNum,
-                    sale_price: null,
+                    sale_price: 0,
                     final_price: originalPriceNum,
                     discount: 0,
                     operation_type: "INSERT",
@@ -932,6 +1112,10 @@ async function madewellMain(minProductsPerCategory = 5) {
               };
 
               categoryProducts.push(formattedProduct);
+
+              // ⭐ Mark this product as processed to prevent duplicates
+              processedProductIds.add(parentId);
+
               console.log(
                 `  ✅ Added product with ${variants.length} variant(s)`
               );
@@ -978,7 +1162,10 @@ async function madewellMain(minProductsPerCategory = 5) {
     try {
       const files = finalizeIncrementalCatalog(inc);
       console.log(
-        `\n📦 Catalog finalized. Total products written: ${totalProducts}`
+        `\n📦 Catalog finalized. Total unique products written: ${totalProducts}`
+      );
+      console.log(
+        `🔍 Total unique product IDs processed: ${processedProductIds.size}`
       );
       return {
         jsonPath: files.jsonPath,
@@ -1000,7 +1187,7 @@ async function madewellMain(minProductsPerCategory = 5) {
 // ============================================================================
 
 async function runMadewellCrawler(options = {}) {
-  const { minProductsPerCategory = 5 } = options;
+  const { minProductsPerCategory = 1600 } = options;
 
   console.log("🏪 Starting Madewell Crawler...");
   console.log(`🎯 Target: ${minProductsPerCategory} products per category`);
