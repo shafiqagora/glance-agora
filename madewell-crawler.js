@@ -119,6 +119,44 @@ function finalizeIncrementalCatalog(ctx) {
 // ============================================================================
 
 /**
+ * Helper function to aggressively close all modals
+ * Closes: Ship To modal, Sign Up modal, and generic modals
+ */
+async function closeAllModals(page) {
+  // Close "Ship To" country modal
+  try {
+    const shipToModal = await page.$(
+      "button.ShipToModal_continueShoppingBtn__QubmY"
+    );
+    if (shipToModal) {
+      await shipToModal.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  } catch {}
+
+  // Close "Sign Up / Create Account" modal
+  try {
+    const signUpModal = await page.$('[data-testid="domestic-auth-modal"]');
+    if (signUpModal) {
+      const closeBtn = await signUpModal.$('button[aria-label="Close modal"]');
+      if (closeBtn) {
+        await closeBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+  } catch {}
+
+  // Close generic modals with [data-testid="modal-close"]
+  try {
+    const modalClose = await page.$('[data-testid="modal-close"]');
+    if (modalClose) {
+      await modalClose.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  } catch {}
+}
+
+/**
  * Extract detailed product information using Puppeteer
  * Navigates to product page and extracts all colors, sizes, images
  */
@@ -137,18 +175,8 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       timeout: 60000,
     });
 
-    // Close modal if present
-    try {
-      const modalClose = await page.$('[data-testid="modal-close"]');
-      if (modalClose) {
-        await modalClose.click();
-        await page
-          .waitForSelector('[data-testid="modal-close"]', {
-            hidden: true,
-          })
-          .catch(() => {});
-      }
-    } catch {}
+    // Close all modals (Ship To, Sign Up, etc.)
+    await closeAllModals(page);
 
     // Wait for product details to load
     await page.waitForSelector(
@@ -195,6 +223,23 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
         );
       details.materials = materialsText || "";
 
+      // Extract alternate images
+      const imageButtons = document.querySelectorAll(
+        "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
+      );
+      details.alternateImages = Array.from(imageButtons)
+        .map((img) => img.getAttribute("src"))
+        .filter((src) => src && src.includes("http"))
+        .map((src) => {
+          // Get the high-res version
+          const url = new URL(src);
+          url.searchParams.set("wid", "1400");
+          url.searchParams.set("hei", "1779");
+          return url.toString();
+        });
+
+      details.imageUrl = details.alternateImages[0] || "";
+
       return details;
     });
 
@@ -218,22 +263,18 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       const colorSwatch = colorSwatches[colorIdx];
       const colorName = colorSwatch.colorName;
 
-      // Close any modal that might be blocking
-      try {
-        const modal = await page.$('[data-testid="modal-close"]');
-        if (modal) {
-          await modal.click();
-          await page
-            .waitForSelector('[data-testid="modal-close"]', { hidden: true })
-            .catch(() => {});
-        }
-      } catch {}
+      // Close all modals before color selection
+      await closeAllModals(page);
 
       // Click on the color swatch
       try {
         const swatchButtons = await page.$$('button[data-role="swatch"]');
         if (swatchButtons[colorIdx]) {
           await swatchButtons[colorIdx].click();
+
+          // Close all modals after color click
+          await closeAllModals(page);
+
           // Wait for color selection to update
           await page
             .waitForSelector(
@@ -245,34 +286,24 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
             )
             .catch(() => {});
 
-          // Wait a bit for images to load for this color
-          await page.waitForTimeout(800);
+          // CRITICAL: Wait for size dropdown to be ready after color change
+          await page
+            .waitForSelector(
+              "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l",
+              {
+                visible: true,
+                timeout: 5000,
+              }
+            )
+            .catch(() => {});
+
+          // Extra delay for sizes to fully load (server is slower)
+          await new Promise((resolve) => setTimeout(resolve, 1500));
         }
       } catch (e) {
         console.log(`    ⚠️ Could not click color swatch ${colorIdx}`);
         continue;
       }
-
-      // Extract alternate images for THIS color
-      const alternateImages = await page.evaluate(() => {
-        const imageButtons = document.querySelectorAll(
-          "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
-        );
-        return Array.from(imageButtons)
-          .map((img) => img.getAttribute("src"))
-          .filter((src) => src && src.includes("http"))
-          .map((src) => {
-            // Get the high-res version
-            try {
-              const url = new URL(src);
-              url.searchParams.set("wid", "1400");
-              url.searchParams.set("hei", "1779");
-              return url.toString();
-            } catch {
-              return src;
-            }
-          });
-      });
 
       // Check if there are fit type buttons (Standard, Petite, Tall)
       const fitTypes = await page.evaluate(() => {
@@ -298,8 +329,15 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
 
         for (const fitType of fitTypes) {
           try {
+            // Close all modals before clicking fit type
+            await closeAllModals(page);
+
             // Click the fit type button
             await page.click(`button[id="${fitType.fitId}"]`);
+
+            // Close all modals after clicking fit type
+            await closeAllModals(page);
+
             await page
               .waitForSelector(
                 "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm",
@@ -310,36 +348,64 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
               )
               .catch(() => {});
 
-            // Try to click size dropdown to reveal sizes
-            try {
-              const dropdown = await page.$(
-                "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-              );
-              if (dropdown) {
-                const isOpen = await page.evaluate(() => {
-                  const dd = document.querySelector(
-                    "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-                  );
-                  return dd?.getAttribute("aria-expanded") === "true";
-                });
+            // Try to click size dropdown to reveal sizes (with retry)
+            let dropdownOpened = false;
+            for (let retry = 0; retry < 3 && !dropdownOpened; retry++) {
+              try {
+                // Close all modals before attempting to open dropdown
+                await closeAllModals(page);
 
-                if (!isOpen) {
-                  await page.click(
-                    "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-                  );
-                  await page.waitForSelector(
-                    "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm",
-                    {
-                      visible: true,
-                      timeout: 5000,
-                    }
+                // Wait a bit for dropdown to be ready
+                await new Promise((resolve) => setTimeout(resolve, 500));
+
+                // Check if sizes are already visible (dropdown already open)
+                const sizesAlreadyVisible = await page.$(
+                  "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm"
+                );
+
+                if (sizesAlreadyVisible) {
+                  // Sizes are already visible, no need to open dropdown
+                  dropdownOpened = true;
+                  break;
+                }
+
+                // Try to find and click dropdown button
+                const dropdown = await page.$(
+                  "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+                );
+
+                if (dropdown) {
+                  const isOpen = await page.evaluate(() => {
+                    const dd = document.querySelector(
+                      "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+                    );
+                    return dd?.getAttribute("aria-expanded") === "true";
+                  });
+
+                  if (!isOpen) {
+                    await page.click(
+                      "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+                    );
+                    await page.waitForSelector(
+                      "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm",
+                      {
+                        visible: true,
+                        timeout: 5000,
+                      }
+                    );
+                  }
+                  dropdownOpened = true;
+                }
+              } catch (e) {
+                if (retry === 2) {
+                  console.log(
+                    `    ⚠️ Could not open size dropdown for fit: ${fitType.fitName} after 3 attempts`
                   );
                 }
               }
-            } catch (e) {
-              console.log(
-                `    ⚠️ Could not open size dropdown for fit: ${fitType.fitName}`
-              );
+            }
+
+            if (!dropdownOpened) {
               continue;
             }
 
@@ -395,33 +461,68 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
           }
         }
       } else {
-        // No fit types - standard size extraction
-        try {
-          const dropdown = await page.$(
-            "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-          );
-          if (dropdown) {
-            const isOpen = await page.evaluate(() => {
-              const dd = document.querySelector(
-                "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-              );
-              return dd?.getAttribute("aria-expanded") === "true";
-            });
+        // No fit types - standard size extraction (with retry)
+        let dropdownOpened = false;
+        for (let retry = 0; retry < 3 && !dropdownOpened; retry++) {
+          try {
+            // Close all modals before attempting to open dropdown
+            await closeAllModals(page);
 
-            if (!isOpen) {
-              await page.click(
-                "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
-              );
-              await page.waitForSelector(
-                "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm",
-                {
-                  visible: true,
-                  timeout: 5000,
-                }
+            // Wait a bit for dropdown to be ready
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            // Check if sizes are already visible (dropdown already open)
+            const sizesAlreadyVisible = await page.$(
+              "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm"
+            );
+
+            if (sizesAlreadyVisible) {
+              // Sizes are already visible, no need to open dropdown
+              dropdownOpened = true;
+              break;
+            }
+
+            // Try to find and click dropdown button
+            const dropdown = await page.$(
+              "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+            );
+
+            if (dropdown) {
+              const isOpen = await page.evaluate(() => {
+                const dd = document.querySelector(
+                  "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+                );
+                return dd?.getAttribute("aria-expanded") === "true";
+              });
+
+              if (!isOpen) {
+                await page.click(
+                  "button.VariationAttributeReimagined_pdpVariantListDropdownHead__csH9l"
+                );
+                await page.waitForSelector(
+                  "ul.SizeAttributeOptions_pdpVariantListDropdownList__UauEm",
+                  {
+                    visible: true,
+                    timeout: 5000,
+                  }
+                );
+              }
+              dropdownOpened = true;
+            }
+          } catch (e) {
+            if (retry === 2) {
+              console.log(
+                `    ⚠️ Could not open size dropdown for color: ${colorName} after 3 attempts`
               );
             }
           }
+        }
 
+        if (!dropdownOpened) {
+          continue;
+        }
+
+        try {
           // Extract sizes
           const sizes = await page.evaluate(() => {
             const sizeItems = document.querySelectorAll(
@@ -464,10 +565,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
             }
           } catch {}
         } catch (e) {
-          console.log(
-            `    ⚠️ Could not open size dropdown for color: ${colorName}`
-          );
-          continue;
+          console.log(`    ⚠️ Error extracting sizes: ${e.message}`);
         }
       }
 
@@ -476,7 +574,6 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       colorVariants.push({
         color: colorName,
         sizes: allSizes,
-        alternateImages: alternateImages,
       });
     }
 
@@ -497,7 +594,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
  * Fetch product list from category listing pages
  * Returns basic product info (ID, name, URL)
  */
-async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
+async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
   console.log(`📋 Fetching product list from: ${categoryUrl}`);
 
   const allProducts = [];
@@ -527,18 +624,13 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
           document.cookie = "locale=en-US; path=/";
         });
 
+        // Close all modals (Ship To, Sign Up, etc.)
+        await closeAllModals(page);
+
         // Wait for product grid to load
         await page.waitForSelector("ul.ProductsGrid_plpGrid__OP3wT", {
           visible: true,
         });
-
-        // Close popup modals if present
-        try {
-          const closeButton = await page.$('[data-testid="modal-close"]');
-          if (closeButton) {
-            await closeButton.click();
-          }
-        } catch {}
 
         // Get total products count
         let totalProducts = 0;
@@ -614,20 +706,8 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
             break;
           }
 
-          // Close modal before pagination
-          try {
-            const modalCloseButton = await page.$(
-              '[data-testid="modal-close"]'
-            );
-            if (modalCloseButton) {
-              await modalCloseButton.click();
-              await page
-                .waitForSelector('[data-testid="modal-close"]', {
-                  hidden: true,
-                })
-                .catch(() => {});
-            }
-          } catch {}
+          // Close all modals before pagination
+          await closeAllModals(page);
 
           // Navigate to next page
           try {
@@ -659,18 +739,15 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
               page.goto(url.toString(), { timeout: 60000 }),
             ]);
 
+            // Close all modals after pagination
+            await closeAllModals(page);
+
             await page.waitForSelector(
               "li.ProductsGrid_plpGridElement__aSWFa",
               {
                 visible: true,
               }
             );
-
-            // Close modal after page load
-            try {
-              const modalAfterNav = await page.$('[data-testid="modal-close"]');
-              if (modalAfterNav) await modalAfterNav.click();
-            } catch {}
 
             currentPage++;
           } catch (error) {
@@ -698,7 +775,7 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
 // MAIN CRAWLER FUNCTION
 // ============================================================================
 
-async function madewellMain(minProductsPerCategory = 10) {
+async function madewellMain(minProductsPerCategory = 5) {
   const store = STORE_CONFIG.MADEWELL;
   const inc = startIncrementalCatalog(store.country, "madewell", store);
 
@@ -706,202 +783,216 @@ async function madewellMain(minProductsPerCategory = 10) {
   let categoryCount = 0;
   const totalCategories = Object.keys(MADEWELL_CATEGORIES).length;
 
-  for (const [key, category] of Object.entries(MADEWELL_CATEGORIES)) {
-    categoryCount++;
-    console.log(
-      `\n🏪 Category ${categoryCount}/${totalCategories}: ${category.name}`
-    );
+  try {
+    for (const [key, category] of Object.entries(MADEWELL_CATEGORIES)) {
+      categoryCount++;
+      console.log(
+        `\n🏪 Category ${categoryCount}/${totalCategories}: ${category.name}`
+      );
 
-    // Step 1: Fetch all product URLs from category listing
-    const productList = await fetchMadewellProductList(
-      category.url,
-      minProductsPerCategory
-    );
+      // Step 1: Fetch all product URLs from category listing
+      const productList = await fetchMadewellProductList(
+        category.url,
+        minProductsPerCategory
+      );
 
-    console.log(`\n📦 Collected ${productList.length} product URLs`);
-    console.log(`🔍 Now fetching detailed information for each product...\n`);
+      console.log(`\n📦 Collected ${productList.length} product URLs`);
+      console.log(`🔍 Now fetching detailed information for each product...\n`);
 
-    // Step 2: Collect all products in memory (not streaming)
-    const categoryProducts = [];
+      // Step 2: Collect all products in memory (not streaming)
+      const categoryProducts = [];
 
-    // Open a browser for detail extraction
-    const result = await retryPuppeteerWithProxyRotation(
-      async (browser) => {
-        for (let i = 0; i < productList.length; i++) {
-          const basicProduct = productList[i];
-          console.log(
-            `\n[${i + 1}/${productList.length}] Processing: ${
-              basicProduct.name
-            } (${basicProduct.id})`
-          );
-
-          try {
-            // Fetch detailed product info
-            const detail = await fetchMadewellProductDetailsPuppeteer(
-              basicProduct.productUrl,
-              browser
-            );
-
-            if (
-              !detail ||
-              !detail.colorVariants ||
-              detail.colorVariants.length === 0
-            ) {
-              console.log(`  ⚠️ Skipping - no detail or variants found`);
-              continue;
-            }
-
-            const name = detail.name || basicProduct.name;
-            const description = (detail.description || "")
-              .replace(/<[^>]*>/g, " ")
-              .replace(/\s+/g, " ")
-              .trim();
-            const brand = "Madewell";
-            const domain = "madewell.com";
-            const parentId = basicProduct.id;
-            const price = detail.price || 0;
-            const originalPriceNum = parseFloat(price) || 0;
-            const materials = detail.materials || null;
-
-            // Determine category name
-            let categoryName = category.name;
-            const urlParts = basicProduct.productUrl.split("/");
-            const clothingIdx = urlParts.findIndex((p) => p === "clothing");
-            if (clothingIdx !== -1 && clothingIdx < urlParts.length - 1) {
-              categoryName = urlParts
-                .slice(clothingIdx, clothingIdx + 2)
-                .join(" > ");
-            }
-
-            // Determine gender
-            let gender = "";
-            const urlLower = basicProduct.productUrl.toLowerCase();
-            if (/\/womens\//.test(urlLower)) gender = "Female";
-            else if (/\/mens\//.test(urlLower)) gender = "Male";
-
-            // Build variants matrix (color x size)
-            const variants = [];
-            for (const colorVariant of detail.colorVariants) {
-              const color = colorVariant.color;
-              const sizes = colorVariant.sizes || [];
-              // Use alternate images specific to this color
-              const colorImages = colorVariant.alternateImages || [];
-              const colorImageUrl = colorImages[0] || "";
-
-              if (sizes.length === 0) {
-                // No sizes, create single variant
-                sizes.push({ size: "One Size", available: true });
-              }
-
-              for (const sizeInfo of sizes) {
-                const size = sizeInfo.size;
-                const isInStock = sizeInfo.available;
-
-                variants.push({
-                  price_currency: "USD",
-                  original_price: originalPriceNum,
-                  link_url: basicProduct.productUrl,
-                  deeplink_url: basicProduct.productUrl,
-                  image_url: colorImageUrl,
-                  alternate_image_urls: colorImages,
-                  is_on_sale: false,
-                  is_in_stock: isInStock,
-                  size: size,
-                  color: color,
-                  mpn: uuidv5(
-                    `${parentId}-${color}`,
-                    "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                  ),
-                  ratings_count: 0,
-                  average_ratings: 0,
-                  review_count: 0,
-                  selling_price: originalPriceNum,
-                  sale_price: null,
-                  final_price: originalPriceNum,
-                  discount: 0,
-                  operation_type: "INSERT",
-                  variant_id: uuidv5(
-                    `${parentId}-${color}-${size}`,
-                    "6ba7b810-9dad-11d1-80b4-00c04fd430c1"
-                  ),
-                  variant_description: "",
-                });
-              }
-            }
-
-            if (variants.length === 0) {
-              console.log(`  ⚠️ Skipping - no variants generated`);
-              continue;
-            }
-
-            const formattedProduct = {
-              parent_product_id: parentId,
-              name: name,
-              description: description,
-              category: categoryName,
-              retailer_domain: domain,
-              brand: brand,
-              gender: gender,
-              materials: materials,
-              return_policy_link: "https://www.madewell.com/us/c/returns/",
-              return_policy:
-                "Madewell gladly accepts returns of unworn, unwashed, undamaged or defective merchandise for full refund or exchange within 30 days of the original purchase.",
-              size_chart: null,
-              available_bank_offers: "",
-              available_coupons: "",
-              variants: variants,
-              operation_type: "INSERT",
-              source: "madewell",
-            };
-
-            categoryProducts.push(formattedProduct);
+      // Open a browser for detail extraction
+      const result = await retryPuppeteerWithProxyRotation(
+        async (browser) => {
+          for (let i = 0; i < productList.length; i++) {
+            const basicProduct = productList[i];
             console.log(
-              `  ✅ Added product with ${variants.length} variant(s)`
+              `\n[${i + 1}/${productList.length}] Processing: ${
+                basicProduct.name
+              } (${basicProduct.id})`
             );
-          } catch (error) {
-            console.log(`  ❌ Error processing product: ${error.message}`);
+
+            try {
+              // Fetch detailed product info
+              const detail = await fetchMadewellProductDetailsPuppeteer(
+                basicProduct.productUrl,
+                browser
+              );
+
+              if (
+                !detail ||
+                !detail.colorVariants ||
+                detail.colorVariants.length === 0
+              ) {
+                console.log(`  ⚠️ Skipping - no detail or variants found`);
+                continue;
+              }
+
+              const name = detail.name || basicProduct.name;
+              const description = (detail.description || "")
+                .replace(/<[^>]*>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+              const images = detail.alternateImages || [];
+              const imageUrl = detail.imageUrl || images[0] || "";
+              const brand = "Madewell";
+              const domain = "madewell.com";
+              const parentId = basicProduct.id;
+              const price = detail.price || 0;
+              const originalPriceNum = parseFloat(price) || 0;
+              const materials = detail.materials || null;
+
+              // Determine category name
+              let categoryName = category.name;
+              const urlParts = basicProduct.productUrl.split("/");
+              const clothingIdx = urlParts.findIndex((p) => p === "clothing");
+              if (clothingIdx !== -1 && clothingIdx < urlParts.length - 1) {
+                categoryName = urlParts
+                  .slice(clothingIdx, clothingIdx + 2)
+                  .join(" > ");
+              }
+
+              // Determine gender
+              let gender = "";
+              const urlLower = basicProduct.productUrl.toLowerCase();
+              if (/\/womens\//.test(urlLower)) gender = "Female";
+              else if (/\/mens\//.test(urlLower)) gender = "Male";
+
+              // Build variants matrix (color x size)
+              const variants = [];
+              for (const colorVariant of detail.colorVariants) {
+                const color = colorVariant.color;
+                const sizes = colorVariant.sizes || [];
+
+                if (sizes.length === 0) {
+                  // No sizes, create single variant
+                  sizes.push({ size: "One Size", available: true });
+                }
+
+                for (const sizeInfo of sizes) {
+                  const size = sizeInfo.size;
+                  const isInStock = sizeInfo.available;
+
+                  variants.push({
+                    price_currency: "USD",
+                    original_price: originalPriceNum,
+                    link_url: basicProduct.productUrl,
+                    deeplink_url: basicProduct.productUrl,
+                    image_url: imageUrl,
+                    alternate_image_urls: images,
+                    is_on_sale: false,
+                    is_in_stock: isInStock,
+                    size: size,
+                    color: color,
+                    mpn: uuidv5(
+                      `${parentId}-${color}`,
+                      "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                    ),
+                    ratings_count: 0,
+                    average_ratings: 0,
+                    review_count: 0,
+                    selling_price: originalPriceNum,
+                    sale_price: null,
+                    final_price: originalPriceNum,
+                    discount: 0,
+                    operation_type: "INSERT",
+                    variant_id: uuidv5(
+                      `${parentId}-${color}-${size}`,
+                      "6ba7b810-9dad-11d1-80b4-00c04fd430c1"
+                    ),
+                    variant_description: "",
+                  });
+                }
+              }
+
+              if (variants.length === 0) {
+                console.log(`  ⚠️ Skipping - no variants generated`);
+                continue;
+              }
+
+              const formattedProduct = {
+                parent_product_id: parentId,
+                name: name,
+                description: description,
+                category: categoryName,
+                retailer_domain: domain,
+                brand: brand,
+                gender: gender,
+                materials: materials,
+                return_policy_link: "https://www.madewell.com/us/c/returns/",
+                return_policy:
+                  "Madewell gladly accepts returns of unworn, unwashed, undamaged or defective merchandise for full refund or exchange within 30 days of the original purchase.",
+                size_chart: null,
+                available_bank_offers: "",
+                available_coupons: "",
+                variants: variants,
+                operation_type: "INSERT",
+                source: "madewell",
+              };
+
+              categoryProducts.push(formattedProduct);
+              console.log(
+                `  ✅ Added product with ${variants.length} variant(s)`
+              );
+            } catch (error) {
+              console.log(`  ❌ Error processing product: ${error.message}`);
+            }
           }
+
+          return categoryProducts;
+        },
+        3,
+        2000,
+        "US"
+      );
+
+      // Step 3: Write all products at once
+      console.log(
+        `\n📝 Writing ${categoryProducts.length} products for ${category.name}...`
+      );
+      for (const product of categoryProducts) {
+        try {
+          appendProductIncremental(inc, product);
+          totalProducts++;
+        } catch (e) {
+          console.log(`Failed writing product: ${e.message}`);
         }
+      }
 
-        return categoryProducts;
-      },
-      3,
-      2000,
-      "US"
-    );
+      console.log(
+        `✅ Completed ${category.name}: ${categoryProducts.length} products written`
+      );
 
-    // Step 3: Write all products at once
-    console.log(
-      `\n📝 Writing ${categoryProducts.length} products for ${category.name}...`
-    );
-    for (const product of categoryProducts) {
-      try {
-        appendProductIncremental(inc, product);
-        totalProducts++;
-      } catch (e) {
-        console.log(`Failed writing product: ${e.message}`);
+      if (categoryCount < totalCategories) {
+        console.log(
+          `📁 Progress: ${categoryCount}/${totalCategories} categories completed, ${totalProducts} total products written`
+        );
       }
     }
-
-    console.log(
-      `✅ Completed ${category.name}: ${categoryProducts.length} products written`
-    );
-
-    if (categoryCount < totalCategories) {
+  } catch (error) {
+    console.error(`\n❌ Error during crawling: ${error.message}`);
+    console.error(error.stack);
+  } finally {
+    // ALWAYS finalize the catalog, even if there's an error
+    try {
+      const files = finalizeIncrementalCatalog(inc);
       console.log(
-        `📁 Progress: ${categoryCount}/${totalCategories} categories completed, ${totalProducts} total products written`
+        `\n📦 Catalog finalized. Total products written: ${totalProducts}`
       );
+      return {
+        jsonPath: files.jsonPath,
+        totalProductIds: totalProducts,
+      };
+    } catch (finalizeError) {
+      console.error(`\n❌ Error finalizing catalog: ${finalizeError.message}`);
+      // Return partial result
+      return {
+        jsonPath: inc.jsonPath,
+        totalProductIds: totalProducts,
+      };
     }
   }
-
-  const files = finalizeIncrementalCatalog(inc);
-  console.log(
-    `\n📦 Final completion. Total products written: ${totalProducts}`
-  );
-  return {
-    jsonPath: files.jsonPath,
-    totalProductIds: totalProducts,
-  };
 }
 
 // ============================================================================
@@ -909,7 +1000,7 @@ async function madewellMain(minProductsPerCategory = 10) {
 // ============================================================================
 
 async function runMadewellCrawler(options = {}) {
-  const { minProductsPerCategory = 10 } = options;
+  const { minProductsPerCategory = 5 } = options;
 
   console.log("🏪 Starting Madewell Crawler...");
   console.log(`🎯 Target: ${minProductsPerCategory} products per category`);
