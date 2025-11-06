@@ -36,11 +36,11 @@ const STORE_CONFIG = {
 const MADEWELL_CATEGORIES = {
   WOMENS_CLOTHING: {
     name: "Women's Clothing",
-    url: "/pk/womens/clothing/",
+    url: "/us/womens/clothing/",
   },
   MENS_CLOTHING: {
     name: "Men's Clothing",
-    url: "/pk/mens/clothing/",
+    url: "/us/mens/clothing/",
   },
 };
 
@@ -195,23 +195,6 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
         );
       details.materials = materialsText || "";
 
-      // Extract alternate images
-      const imageButtons = document.querySelectorAll(
-        "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
-      );
-      details.alternateImages = Array.from(imageButtons)
-        .map((img) => img.getAttribute("src"))
-        .filter((src) => src && src.includes("http"))
-        .map((src) => {
-          // Get the high-res version
-          const url = new URL(src);
-          url.searchParams.set("wid", "1400");
-          url.searchParams.set("hei", "1779");
-          return url.toString();
-        });
-
-      details.imageUrl = details.alternateImages[0] || "";
-
       return details;
     });
 
@@ -261,11 +244,35 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
               }
             )
             .catch(() => {});
+
+          // Wait a bit for images to load for this color
+          await page.waitForTimeout(800);
         }
       } catch (e) {
         console.log(`    ⚠️ Could not click color swatch ${colorIdx}`);
         continue;
       }
+
+      // Extract alternate images for THIS color
+      const alternateImages = await page.evaluate(() => {
+        const imageButtons = document.querySelectorAll(
+          "button.ImagesReimagined_pdpGridImage__iddW_ img[data-test-id='productGallery']"
+        );
+        return Array.from(imageButtons)
+          .map((img) => img.getAttribute("src"))
+          .filter((src) => src && src.includes("http"))
+          .map((src) => {
+            // Get the high-res version
+            try {
+              const url = new URL(src);
+              url.searchParams.set("wid", "1400");
+              url.searchParams.set("hei", "1779");
+              return url.toString();
+            } catch {
+              return src;
+            }
+          });
+      });
 
       // Check if there are fit type buttons (Standard, Petite, Tall)
       const fitTypes = await page.evaluate(() => {
@@ -469,6 +476,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       colorVariants.push({
         color: colorName,
         sizes: allSizes,
+        alternateImages: alternateImages,
       });
     }
 
@@ -489,7 +497,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
  * Fetch product list from category listing pages
  * Returns basic product info (ID, name, URL)
  */
-async function fetchMadewellProductList(categoryUrl, minProducts = 400) {
+async function fetchMadewellProductList(categoryUrl, minProducts = 10) {
   console.log(`📋 Fetching product list from: ${categoryUrl}`);
 
   const allProducts = [];
@@ -690,7 +698,7 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 400) {
 // MAIN CRAWLER FUNCTION
 // ============================================================================
 
-async function madewellMain(minProductsPerCategory = 400) {
+async function madewellMain(minProductsPerCategory = 10) {
   const store = STORE_CONFIG.MADEWELL;
   const inc = startIncrementalCatalog(store.country, "madewell", store);
 
@@ -748,8 +756,6 @@ async function madewellMain(minProductsPerCategory = 400) {
               .replace(/<[^>]*>/g, " ")
               .replace(/\s+/g, " ")
               .trim();
-            const images = detail.alternateImages || [];
-            const imageUrl = detail.imageUrl || images[0] || "";
             const brand = "Madewell";
             const domain = "madewell.com";
             const parentId = basicProduct.id;
@@ -778,6 +784,9 @@ async function madewellMain(minProductsPerCategory = 400) {
             for (const colorVariant of detail.colorVariants) {
               const color = colorVariant.color;
               const sizes = colorVariant.sizes || [];
+              // Use alternate images specific to this color
+              const colorImages = colorVariant.alternateImages || [];
+              const colorImageUrl = colorImages[0] || "";
 
               if (sizes.length === 0) {
                 // No sizes, create single variant
@@ -793,8 +802,8 @@ async function madewellMain(minProductsPerCategory = 400) {
                   original_price: originalPriceNum,
                   link_url: basicProduct.productUrl,
                   deeplink_url: basicProduct.productUrl,
-                  image_url: imageUrl,
-                  alternate_image_urls: images,
+                  image_url: colorImageUrl,
+                  alternate_image_urls: colorImages,
                   is_on_sale: false,
                   is_in_stock: isInStock,
                   size: size,
@@ -900,7 +909,7 @@ async function madewellMain(minProductsPerCategory = 400) {
 // ============================================================================
 
 async function runMadewellCrawler(options = {}) {
-  const { minProductsPerCategory = 400 } = options;
+  const { minProductsPerCategory = 10 } = options;
 
   console.log("🏪 Starting Madewell Crawler...");
   console.log(`🎯 Target: ${minProductsPerCategory} products per category`);
