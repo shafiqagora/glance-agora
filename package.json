@@ -1,0 +1,53 @@
+{
+  "name": "shopify-crawler",
+  "version": "1.0.0",
+  "description": "Shopify store crawler with MongoDB integration",
+  "main": "shopify-crawler-csv.js",
+  "scripts": {
+    "start": "node shopify-crawler-csv.js",
+    "recrawl": "node recrawl-stores.js",
+    "upload:crawl": "node upload-catalogs.js crawl",
+    "upload:recrawl": "node upload-catalogs.js recrawl",
+    "upload:test": "node upload-catalogs.js test",
+    "levis:scrape": "node levis-scraper.js",
+    "myntra:scrape": "node myntra-scraper.js",
+    "myntra:enhanced": "node myntra-scraper-enhanced.js",
+    "myntra:product": "node myntra-product-api.js",
+    "myntra:test": "node test-myntra-enhanced.js",
+    "macys:scrape": "node macys-scraper.js",
+    "update:return-policies": "node update-return-policies.js",
+    "zara:fetch": "node zara-json-fetcher.js",
+    "zara:men": "node zara-men-products-scraper.js",
+    "gap:scrape": "node gap-crawler.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0",
+    "@xenova/transformers": "^2.17.2",
+    "axios": "^1.6.0",
+    "csv-parser": "^3.2.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.5.0",
+    "firebase-admin": "^13.5.0",
+    "lodash": "^4.17.21",
+    "mongoose": "^8.15.1",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
+    "puppeteer": "^24.10.0",
+    "puppeteer-core": "^24.10.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-real-browser": "^1.4.2",
+    "sanitize-html": "^2.11.0",
+    "ssh2-sftp-client": "^12.0.0",
+    "uuid": "^9.0.1"
+  },
+  "keywords": [
+    "shopify",
+    "crawler",
+    "mongodb",
+    "ecommerce"
+  ],
+  "author": "",
+  "license": "ISC"
+}

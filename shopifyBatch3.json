@@ -1,0 +1,37 @@
+[
+  {
+    "brandName": "78 and Sunny",
+    "url": "https://78andsunnyapparel.com/",
+    "returnPolicy": "https://78andsunnyapparel.com/pages/returns-exchanges"
+  },
+  {
+    "brandName": "WEGO",
+    "url": "https://wego.jp/",
+    "returnPolicy": "https://wego.jp/pages/faq"
+  },
+  {
+    "brandName": "A Bathing Ape (BAPE)",
+    "url": "https://en.jp.bape.com/pages/bapejapanlimitedcollection",
+    "returnPolicy": "Not found"
+  },
+  {
+    "brandName": "Neighborhood",
+    "url": "https://www.neighborhood.jp/",
+    "returnPolicy": "https://www.neighborhood.jp/en/pages/cancels"
+  },
+  {
+    "brandName": "Issey Miyake",
+    "url": "https://www.isseymiyake.com/",
+    "returnPolicy": "https://us.isseymiyake.com/pages/returns-policy"
+  },
+  {
+    "brandName": "Sacai",
+    "url": "https://www.sacai.jp/",
+    "returnPolicy": "https://www.sacai.jp/en/pages/%E9%85%8D%E9%80%81-%E8%BF%94%E5%93%81%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6"
+  },
+  {
+    "brandName": "Nano Universe",
+    "url": "https://store.nanouniverse.jp/",
+    "returnPolicy": "https://store.nanouniverse.jp/pages/sg-return"
+  }
+]

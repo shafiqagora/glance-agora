@@ -1,0 +1,42 @@
+[
+  {
+    "brandName": "Seiko USA",
+    "url": "https://seikousa.com/",
+    "returnPolicy": "https://seikousa.com/pages/support?srsltid=AfmBOoqUeJ1FCLNd3nHNALDRo3PV1PwkU85MH8VsheeX1hD_GId8ZtNk"
+  },
+  {
+    "brandName": "Vincero Collective",
+    "url": "https://vincerocollective.com/",
+    "returnPolicy": "https://vincerocollective.com/pages/returns"
+  },
+  {
+    "brandName": "Nine West",
+    "url": "https://ninewest.com/",
+    "returnPolicy": "https://www.ninewest.com.au/pages/shipping-and-returns"
+  },
+  {
+    "brandName": "Nixon US",
+    "url": "https://www.nixon.com/",
+    "returnPolicy": "https://www.nixon.com/pages/return-policy?srsltid=AfmBOoqPwTRKdV4Tt1oACtfEfA5mdxvd6zHFwQgcS-hzcS-t8z13thAH"
+  },
+  {
+    "brandName": "Linjer",
+    "url": "https://www.linjer.co/",
+    "returnPolicy": "https://www.linjer.co/pages/shipping-returns"
+  },
+  {
+    "brandName": "Watches.com",
+    "url": "https://Watches.com/",
+    "returnPolicy": "https://www.watches.com/pages/returns?srsltid=AfmBOooLVACQjHObdu99xvw4-h9fXC4OhRDmza9jTlFAuBsB1lrxrWV8"
+  },
+  {
+    "brandName": "Arizona Fine Time",
+    "url": "https://azfinetime.com/",
+    "returnPolicy": "https://azfinetime.com/pages/shipping-returns?srsltid=AfmBOorfE9DCBEHRERwNpYRodfvWPdwn1KKNZyuWpFZqvISh5rTXbH4j"
+  },
+  {
+    "brandName": "HorologyHour",
+    "url": "https://www.horologyhour.com/",
+    "returnPolicy": "https://www.horologyhour.com/policies/refund-policy"
+  }
+]
