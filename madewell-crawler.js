@@ -34,10 +34,10 @@ const STORE_CONFIG = {
 };
 
 const MADEWELL_CATEGORIES = {
-  WOMENS_NEW_ARRIVALS: {
-    name: "Women's New Arrivals",
-    url: "/us/womens/new/new-arrivals/",
-  },
+  // WOMENS_NEW_ARRIVALS: {
+  //   name: "Women's New Arrivals",
+  //   url: "/us/womens/new/new-arrivals/",
+  // },
   MENS_NEW_ARRIVALS: {
     name: "Men's New Arrivals",
     url: "/us/mens/new/new-arrivals/",
@@ -1018,184 +1018,215 @@ async function madewellMain(minProductsPerCategory = 1600) {
       // Step 2: Collect all products in memory (not streaming)
       const categoryProducts = [];
 
-      // Open a browser for detail extraction
-      const result = await retryPuppeteerWithProxyRotation(
-        async (browser) => {
-          for (let i = 0; i < productList.length; i++) {
-            const basicProduct = productList[i];
+      // ⭐ Process products in batches of 5 to avoid memory exhaustion
+      const BATCH_SIZE = 5;
+      for (
+        let batchStart = 0;
+        batchStart < productList.length;
+        batchStart += BATCH_SIZE
+      ) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, productList.length);
+        const batch = productList.slice(batchStart, batchEnd);
 
-            // ⭐ Check if product already processed (deduplication)
-            if (processedProductIds.has(basicProduct.id)) {
+        console.log(
+          `\n🔄 Processing batch ${
+            Math.floor(batchStart / BATCH_SIZE) + 1
+          }/${Math.ceil(productList.length / BATCH_SIZE)} (Products ${
+            batchStart + 1
+          }-${batchEnd}/${productList.length})`
+        );
+
+        // Open a fresh browser for each batch
+        await retryPuppeteerWithProxyRotation(
+          async (browser) => {
+            for (let i = 0; i < batch.length; i++) {
+              const basicProduct = batch[i];
+              const globalIndex = batchStart + i;
+
+              // ⭐ Check if product already processed (deduplication)
+              if (processedProductIds.has(basicProduct.id)) {
+                console.log(
+                  `\n[${globalIndex + 1}/${
+                    productList.length
+                  }] ⏭️ Skipping duplicate: ${basicProduct.name} (${
+                    basicProduct.id
+                  })`
+                );
+                continue; // Skip duplicate product
+              }
+
               console.log(
-                `\n[${i + 1}/${productList.length}] ⏭️ Skipping duplicate: ${
+                `\n[${globalIndex + 1}/${productList.length}] Processing: ${
                   basicProduct.name
                 } (${basicProduct.id})`
               );
-              continue; // Skip duplicate product
-            }
 
-            console.log(
-              `\n[${i + 1}/${productList.length}] Processing: ${
-                basicProduct.name
-              } (${basicProduct.id})`
-            );
+              try {
+                // Fetch detailed product info
+                const detail = await fetchMadewellProductDetailsPuppeteer(
+                  basicProduct.productUrl,
+                  browser
+                );
 
-            try {
-              // Fetch detailed product info
-              const detail = await fetchMadewellProductDetailsPuppeteer(
-                basicProduct.productUrl,
-                browser
-              );
-
-              if (
-                !detail ||
-                !detail.colorVariants ||
-                detail.colorVariants.length === 0
-              ) {
-                console.log(`  ⚠️ Skipping - no detail or variants found`);
-                continue;
-              }
-
-              // Add delay between products to avoid rate limiting
-              await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 second delay
-
-              const name = detail.name || basicProduct.name;
-              const description = (detail.description || "")
-                .replace(/<[^>]*>/g, " ")
-                .replace(/\s+/g, " ")
-                .trim();
-              const images = detail.alternateImages || [];
-              const imageUrl = detail.imageUrl || images[0] || "";
-              const brand = "Madewell";
-              const domain = "madewell.com";
-              const parentId = basicProduct.id;
-              const price = detail.price || 0;
-              const originalPriceNum = parseFloat(price) || 0;
-              const materials = detail.materials || null;
-
-              // Determine category name
-              let categoryName = category.name;
-              const urlParts = basicProduct.productUrl.split("/");
-              const clothingIdx = urlParts.findIndex((p) => p === "clothing");
-              if (clothingIdx !== -1 && clothingIdx < urlParts.length - 1) {
-                categoryName = urlParts
-                  .slice(clothingIdx, clothingIdx + 2)
-                  .join(" > ");
-              }
-
-              // Determine gender
-              let gender = "";
-              const urlLower = basicProduct.productUrl.toLowerCase();
-              if (/\/womens\//.test(urlLower)) gender = "Female";
-              else if (/\/mens\//.test(urlLower)) gender = "Male";
-
-              // Build variants matrix (color x size)
-              const variants = [];
-              for (const colorVariant of detail.colorVariants) {
-                const color = colorVariant.color;
-                const sizes = colorVariant.sizes || [];
-
-                // ⭐ Use color-specific URL and images (ONLY REAL DATA)
-                const variantUrl = colorVariant.colorUrl;
-                const variantImages = colorVariant.colorImages;
-                const variantImageUrl = variantImages[0];
-
-                // ⭐ Skip if no sizes - ONLY REAL DATA
-                if (sizes.length === 0) {
-                  console.log(`  ⚠️ No sizes for color ${color}, skipping`);
-                  continue; // Skip this color variant
-                }
-
-                // ⭐ Skip if missing URL or images - ONLY REAL DATA
                 if (
-                  !variantUrl ||
-                  !variantImages ||
-                  variantImages.length === 0
+                  !detail ||
+                  !detail.colorVariants ||
+                  detail.colorVariants.length === 0
                 ) {
-                  console.log(`  ⚠️ Missing data for color ${color}, skipping`);
-                  continue; // Skip this color variant
+                  console.log(`  ⚠️ Skipping - no detail or variants found`);
+                  continue;
                 }
 
-                for (const sizeInfo of sizes) {
-                  const size = sizeInfo.size;
-                  const isInStock = sizeInfo.available;
+                // Add delay between products to avoid rate limiting
+                await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 second delay
 
-                  variants.push({
-                    price_currency: "USD",
-                    original_price: originalPriceNum,
-                    link_url: variantUrl, // ⭐ Color-specific URL
-                    deeplink_url: variantUrl, // ⭐ Color-specific URL
-                    image_url: variantImageUrl, // ⭐ Color-specific main image
-                    alternate_image_urls: variantImages, // ⭐ Color-specific images
-                    is_on_sale: false,
-                    is_in_stock: isInStock,
-                    size: size,
-                    color: color,
-                    mpn: uuidv5(
-                      `${parentId}-${color}`,
-                      "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    ),
-                    ratings_count: 0,
-                    average_ratings: 0,
-                    review_count: 0,
-                    selling_price: originalPriceNum,
-                    sale_price: 0,
-                    final_price: originalPriceNum,
-                    discount: 0,
-                    operation_type: "INSERT",
-                    variant_id: uuidv5(
-                      `${parentId}-${color}-${size}`,
-                      "6ba7b810-9dad-11d1-80b4-00c04fd430c1"
-                    ),
-                    variant_description: "",
-                  });
+                const name = detail.name || basicProduct.name;
+                const description = (detail.description || "")
+                  .replace(/<[^>]*>/g, " ")
+                  .replace(/\s+/g, " ")
+                  .trim();
+                const images = detail.alternateImages || [];
+                const imageUrl = detail.imageUrl || images[0] || "";
+                const brand = "Madewell";
+                const domain = "madewell.com";
+                const parentId = basicProduct.id;
+                const price = detail.price || 0;
+                const originalPriceNum = parseFloat(price) || 0;
+                const materials = detail.materials || null;
+
+                // Determine category name
+                let categoryName = category.name;
+                const urlParts = basicProduct.productUrl.split("/");
+                const clothingIdx = urlParts.findIndex((p) => p === "clothing");
+                if (clothingIdx !== -1 && clothingIdx < urlParts.length - 1) {
+                  categoryName = urlParts
+                    .slice(clothingIdx, clothingIdx + 2)
+                    .join(" > ");
                 }
+
+                // Determine gender
+                let gender = "";
+                const urlLower = basicProduct.productUrl.toLowerCase();
+                if (/\/womens\//.test(urlLower)) gender = "Female";
+                else if (/\/mens\//.test(urlLower)) gender = "Male";
+
+                // Build variants matrix (color x size)
+                const variants = [];
+                for (const colorVariant of detail.colorVariants) {
+                  const color = colorVariant.color;
+                  const sizes = colorVariant.sizes || [];
+
+                  // ⭐ Use color-specific URL and images (ONLY REAL DATA)
+                  const variantUrl = colorVariant.colorUrl;
+                  const variantImages = colorVariant.colorImages;
+                  const variantImageUrl = variantImages[0];
+
+                  // ⭐ Skip if no sizes - ONLY REAL DATA
+                  if (sizes.length === 0) {
+                    console.log(`  ⚠️ No sizes for color ${color}, skipping`);
+                    continue; // Skip this color variant
+                  }
+
+                  // ⭐ Skip if missing URL or images - ONLY REAL DATA
+                  if (
+                    !variantUrl ||
+                    !variantImages ||
+                    variantImages.length === 0
+                  ) {
+                    console.log(
+                      `  ⚠️ Missing data for color ${color}, skipping`
+                    );
+                    continue; // Skip this color variant
+                  }
+
+                  for (const sizeInfo of sizes) {
+                    const size = sizeInfo.size;
+                    const isInStock = sizeInfo.available;
+
+                    variants.push({
+                      price_currency: "USD",
+                      original_price: originalPriceNum,
+                      link_url: variantUrl, // ⭐ Color-specific URL
+                      deeplink_url: variantUrl, // ⭐ Color-specific URL
+                      image_url: variantImageUrl, // ⭐ Color-specific main image
+                      alternate_image_urls: variantImages, // ⭐ Color-specific images
+                      is_on_sale: false,
+                      is_in_stock: isInStock,
+                      size: size,
+                      color: color,
+                      mpn: uuidv5(
+                        `${parentId}-${color}`,
+                        "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                      ),
+                      ratings_count: 0,
+                      average_ratings: 0,
+                      review_count: 0,
+                      selling_price: originalPriceNum,
+                      sale_price: 0,
+                      final_price: originalPriceNum,
+                      discount: 0,
+                      operation_type: "INSERT",
+                      variant_id: uuidv5(
+                        `${parentId}-${color}-${size}`,
+                        "6ba7b810-9dad-11d1-80b4-00c04fd430c1"
+                      ),
+                      variant_description: "",
+                    });
+                  }
+                }
+
+                if (variants.length === 0) {
+                  console.log(`  ⚠️ Skipping - no variants generated`);
+                  continue;
+                }
+
+                const formattedProduct = {
+                  parent_product_id: parentId,
+                  name: name,
+                  description: description,
+                  category: categoryName,
+                  retailer_domain: domain,
+                  brand: brand,
+                  gender: gender,
+                  materials: materials,
+                  return_policy_link: "https://www.madewell.com/us/c/returns/",
+                  return_policy:
+                    "Madewell gladly accepts returns of unworn, unwashed, undamaged or defective merchandise for full refund or exchange within 30 days of the original purchase.",
+                  size_chart: null,
+                  available_bank_offers: "",
+                  available_coupons: "",
+                  variants: variants,
+                  operation_type: "INSERT",
+                  source: "madewell",
+                };
+
+                categoryProducts.push(formattedProduct);
+
+                // ⭐ Mark this product as processed to prevent duplicates
+                processedProductIds.add(parentId);
+
+                console.log(
+                  `  ✅ Added product with ${variants.length} variant(s)`
+                );
+              } catch (error) {
+                console.log(`  ❌ Error processing product: ${error.message}`);
               }
-
-              if (variants.length === 0) {
-                console.log(`  ⚠️ Skipping - no variants generated`);
-                continue;
-              }
-
-              const formattedProduct = {
-                parent_product_id: parentId,
-                name: name,
-                description: description,
-                category: categoryName,
-                retailer_domain: domain,
-                brand: brand,
-                gender: gender,
-                materials: materials,
-                return_policy_link: "https://www.madewell.com/us/c/returns/",
-                return_policy:
-                  "Madewell gladly accepts returns of unworn, unwashed, undamaged or defective merchandise for full refund or exchange within 30 days of the original purchase.",
-                size_chart: null,
-                available_bank_offers: "",
-                available_coupons: "",
-                variants: variants,
-                operation_type: "INSERT",
-                source: "madewell",
-              };
-
-              categoryProducts.push(formattedProduct);
-
-              // ⭐ Mark this product as processed to prevent duplicates
-              processedProductIds.add(parentId);
-
-              console.log(
-                `  ✅ Added product with ${variants.length} variant(s)`
-              );
-            } catch (error) {
-              console.log(`  ❌ Error processing product: ${error.message}`);
             }
-          }
 
-          return categoryProducts;
-        },
-        3,
-        2000,
-        "US"
-      );
+            // Browser will close automatically when function exits
+            return true;
+          },
+          3,
+          2000,
+          "US"
+        );
+
+        console.log(
+          `✅ Batch ${
+            Math.floor(batchStart / BATCH_SIZE) + 1
+          } completed, browser closed`
+        );
+      } // End of batch loop
 
       // Step 3: Write all products at once
       console.log(
