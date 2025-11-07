@@ -34,10 +34,10 @@ const STORE_CONFIG = {
 };
 
 const MADEWELL_CATEGORIES = {
-  // WOMENS_NEW_ARRIVALS: {
-  //   name: "Women's New Arrivals",
-  //   url: "/us/womens/new/new-arrivals/",
-  // },
+  WOMENS_NEW_ARRIVALS: {
+    name: "Women's New Arrivals",
+    url: "/us/womens/new/new-arrivals/",
+  },
   MENS_NEW_ARRIVALS: {
     name: "Men's New Arrivals",
     url: "/us/mens/new/new-arrivals/",
@@ -1015,8 +1015,8 @@ async function madewellMain(minProductsPerCategory = 1600) {
       console.log(`\n📦 Collected ${productList.length} product URLs`);
       console.log(`🔍 Now fetching detailed information for each product...\n`);
 
-      // Step 2: Collect all products in memory (not streaming)
-      const categoryProducts = [];
+      // Step 2: Process and write products immediately to avoid memory issues
+      let categoryProductsCount = 0;
 
       // ⭐ Process products in batches of 5 to avoid memory exhaustion
       const BATCH_SIZE = 5;
@@ -1200,14 +1200,23 @@ async function madewellMain(minProductsPerCategory = 1600) {
                   source: "madewell",
                 };
 
-                categoryProducts.push(formattedProduct);
+                // ⭐ Write product IMMEDIATELY to disk (no memory buildup)
+                try {
+                  appendProductIncremental(inc, formattedProduct);
+                  categoryProductsCount++;
+                  totalProducts++;
+
+                  console.log(
+                    `  ✅ Added product with ${variants.length} variant(s) [Written to disk]`
+                  );
+                } catch (writeError) {
+                  console.log(
+                    `  ❌ Error writing product: ${writeError.message}`
+                  );
+                }
 
                 // ⭐ Mark this product as processed to prevent duplicates
                 processedProductIds.add(parentId);
-
-                console.log(
-                  `  ✅ Added product with ${variants.length} variant(s)`
-                );
               } catch (error) {
                 console.log(`  ❌ Error processing product: ${error.message}`);
               }
@@ -1228,21 +1237,8 @@ async function madewellMain(minProductsPerCategory = 1600) {
         );
       } // End of batch loop
 
-      // Step 3: Write all products at once
       console.log(
-        `\n📝 Writing ${categoryProducts.length} products for ${category.name}...`
-      );
-      for (const product of categoryProducts) {
-        try {
-          appendProductIncremental(inc, product);
-          totalProducts++;
-        } catch (e) {
-          console.log(`Failed writing product: ${e.message}`);
-        }
-      }
-
-      console.log(
-        `✅ Completed ${category.name}: ${categoryProducts.length} products written`
+        `✅ Completed ${category.name}: ${categoryProductsCount} products written`
       );
 
       if (categoryCount < totalCategories) {
