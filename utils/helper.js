@@ -735,7 +735,8 @@ async function retryPuppeteerWithProxyRotation(
   maxRetries = 3,
   baseDelay = 2000,
   country = "US",
-  storeUrl = ""
+  storeUrl = "",
+  headless = true
 ) {
   let attempt = 0;
 
@@ -774,16 +775,18 @@ async function retryPuppeteerWithProxyRotation(
       console.log(
         `🌍 Puppeteer using ${country} proxy endpoint: ${proxyConfig.credentials.endpoint}`
       );
+      console.log(`🖥️  Headless mode: ${headless}`);
 
       // Launch browser with proxy
       browser = await puppeteer.launch({
-        headless: true,
+        headless: headless,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
           `--proxy-server=${proxyUrl}`,
           "--disable-dev-shm-usage",
           "--disable-features=VizDisplayCompositor",
+          "--disable-blink-features=AutomationControlled",
         ],
       });
 

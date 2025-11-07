@@ -135,16 +135,18 @@ function finalizeIncrementalCatalog(ctx) {
 // ============================================================================
 
 /**
- * Helper function to aggressively close all modals
+ * Helper function to aggressively close all modals (BACKUP)
  * Closes: Ship To modal, Sign Up modal, and generic modals
+ * Note: Cookies are set to prevent modals, but this is a backup
  */
 async function closeAllModals(page) {
-  // Close "Ship To" country modal
+  // Close "Ship To" country modal (if it still appears)
   try {
     const shipToModal = await page.$(
       "button.ShipToModal_continueShoppingBtn__QubmY"
     );
     if (shipToModal) {
+      console.log("  ⚠️ Ship To modal appeared despite cookies, closing...");
       await shipToModal.click();
       // ⭐ Wait for modal to disappear instead of timeout
       await page
@@ -203,13 +205,47 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
 
+    // ⭐ Set cookies BEFORE navigation to prevent Ship To modal
+    await page.setCookie(
+      {
+        name: "country",
+        value: "US",
+        domain: ".madewell.com",
+        path: "/",
+      },
+      {
+        name: "currency",
+        value: "USD",
+        domain: ".madewell.com",
+        path: "/",
+      },
+      {
+        name: "locale",
+        value: "en-US",
+        domain: ".madewell.com",
+        path: "/",
+      },
+      {
+        name: "shipToCountry",
+        value: "US",
+        domain: ".madewell.com",
+        path: "/",
+      },
+      {
+        name: "hasShownShipToModal",
+        value: "true",
+        domain: ".madewell.com",
+        path: "/",
+      }
+    );
+
     console.log(`  🔍 Fetching details: ${productUrl}`);
     await page.goto(productUrl, {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
 
-    // Close all modals (Ship To, Sign Up, etc.)
+    // Close all modals (Ship To, Sign Up, etc.) - as backup
     await closeAllModals(page);
 
     // Wait for product details to load
@@ -737,18 +773,45 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         );
 
+        // ⭐ Set cookies BEFORE navigation to prevent Ship To modal
+        await page.setCookie(
+          {
+            name: "country",
+            value: "US",
+            domain: ".madewell.com",
+            path: "/",
+          },
+          {
+            name: "currency",
+            value: "USD",
+            domain: ".madewell.com",
+            path: "/",
+          },
+          {
+            name: "locale",
+            value: "en-US",
+            domain: ".madewell.com",
+            path: "/",
+          },
+          {
+            name: "shipToCountry",
+            value: "US",
+            domain: ".madewell.com",
+            path: "/",
+          },
+          {
+            name: "hasShownShipToModal",
+            value: "true",
+            domain: ".madewell.com",
+            path: "/",
+          }
+        );
+
         const fullUrl = `https://www.madewell.com${categoryUrl}?country=US&currency=USD`;
         console.log(`🌐 Navigating to: ${fullUrl}`);
         await page.goto(fullUrl, {
           waitUntil: "domcontentloaded",
           timeout: 60000,
-        });
-
-        // Set locale
-        await page.evaluate(() => {
-          document.cookie = "country=US; path=/";
-          document.cookie = "currency=USD; path=/";
-          document.cookie = "locale=en-US; path=/";
         });
 
         // Close all modals (Ship To, Sign Up, etc.)
