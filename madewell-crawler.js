@@ -253,7 +253,7 @@ async function fetchMadewellProductDetailsPuppeteer(productUrl, browser) {
       "h1.ProductTopDetailsReimagined_pdpName__8wtYV",
       {
         visible: true,
-        timeout: 10000,
+        timeout: 30000, // Increased to 30 seconds
       }
     );
 
@@ -811,7 +811,7 @@ async function fetchMadewellProductList(categoryUrl, minProducts = 5) {
         console.log(`🌐 Navigating to: ${fullUrl}`);
         await page.goto(fullUrl, {
           waitUntil: "domcontentloaded",
-          timeout: 60000,
+          timeout: 120000, // 2 minutes for page load
         });
 
         // Close all modals (Ship To, Sign Up, etc.)
@@ -1055,6 +1055,9 @@ async function madewellMain(minProductsPerCategory = 1600) {
                 console.log(`  ⚠️ Skipping - no detail or variants found`);
                 continue;
               }
+
+              // Add delay between products to avoid rate limiting
+              await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 second delay
 
               const name = detail.name || basicProduct.name;
               const description = (detail.description || "")
