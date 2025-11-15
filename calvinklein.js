@@ -132,9 +132,26 @@ const { v4: uuidv4, v5: uuidv5 } = require("uuid");
               // Wait for new products to load
               await new Promise((resolve) => setTimeout(resolve, 3000));
 
-              // Re-check product count after clicking
+              // Wait a bit more and re-check product count after clicking
+              await new Promise((resolve) => setTimeout(resolve, 1000));
               const countAfterClick = await page.evaluate(() => {
                 return document.querySelectorAll(".product").length;
+              });
+
+              // Check if button is still visible/enabled
+              const buttonStillVisible = await page.evaluate(() => {
+                const button = document.querySelector(
+                  ".ds-load-more, .load-more"
+                );
+                if (!button) return false;
+                const style = window.getComputedStyle(button);
+                const rect = button.getBoundingClientRect();
+                return (
+                  style.display !== "none" &&
+                  style.visibility !== "hidden" &&
+                  rect.height > 0 &&
+                  !button.disabled
+                );
               });
 
               if (countAfterClick > pageCurrentProductCount) {
@@ -147,11 +164,40 @@ const { v4: uuidv4, v5: uuidv5 } = require("uuid");
                 pageNoNewProductsCount = 0;
                 pageScrollAttempts++;
                 continue;
+              } else if (!buttonStillVisible) {
+                // Button disappeared or became disabled - all products loaded
+                console.log(
+                  `      ✅ Load More button disappeared/disabled. All products loaded (${countAfterClick} products)`
+                );
+                pagePreviousProductCount = countAfterClick;
+                break;
+              } else {
+                // Button was clicked but no new products loaded and button still visible - stop clicking
+                console.log(
+                  `      ⚠️ Load More button clicked but no new products loaded. Stopping after ${
+                    pageNoNewProductsCount + 1
+                  } failed attempts.`
+                );
+                pagePreviousProductCount = countAfterClick;
+                pageNoNewProductsCount++;
+                if (pageNoNewProductsCount >= 2) {
+                  console.log(
+                    `      ✅ All products loaded on this page (${countAfterClick} products)`
+                  );
+                  break;
+                }
+                // Don't try clicking again in this iteration
+                pageScrollAttempts++;
+                continue;
               }
             } catch (error) {
               console.log(
                 `      ⚠️ Error clicking Load More button: ${error.message}`
               );
+              pageNoNewProductsCount++;
+              if (pageNoNewProductsCount >= 2) {
+                break;
+              }
             }
           }
 
