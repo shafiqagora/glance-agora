@@ -7,7 +7,7 @@ const { v4: uuidv4, v5: uuidv5 } = require("uuid");
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: true, // Set to true for server environment
+    headless: false,
     defaultViewport: false,
     userDataDir: "./tmp",
     args: [
