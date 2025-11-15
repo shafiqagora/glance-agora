@@ -25,6 +25,8 @@
     "@anthropic-ai/sdk": "^0.54.0",
     "@xenova/transformers": "^2.17.2",
     "axios": "^1.6.0",
+    "axios-cookiejar-support": "^6.0.4",
+    "cheerio": "^1.1.2",
     "csv-parser": "^3.2.0",
     "csv-writer": "^1.6.0",
     "dotenv": "^16.5.0",
@@ -40,6 +42,8 @@
     "puppeteer-real-browser": "^1.4.2",
     "sanitize-html": "^2.11.0",
     "ssh2-sftp-client": "^12.0.0",
+    "tough-cookie": "^5.1.2",
+    "user-agents": "^1.1.669",
     "uuid": "^9.0.1"
   },
   "keywords": [
