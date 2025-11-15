@@ -7,9 +7,18 @@ const { v4: uuidv4, v5: uuidv5 } = require("uuid");
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: true, // Set to true for server environment
     defaultViewport: false,
     userDataDir: "./tmp",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--no-first-run",
+      "--no-zygote",
+      "--disable-gpu",
+    ],
   });
   const page = await browser.newPage();
 
